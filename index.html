@@ -79,6 +79,7 @@
       <div id="userBadge"></div>
       <div id="authDenied" class="callout denied" hidden>Akun ini tidak diizinkan mengakses halaman admin ini.</div>
     </div>
+    <div id="authError" class="callout denied" hidden></div>
   </div>
 
   <!-- UPLOAD PANEL -->
@@ -132,7 +133,7 @@ const firebaseConfig = {
 // Email yang boleh akses halaman ini. Rules Firestore-nya HARUS cek hal yang
 // sama (lihat dokumen firestore-rules-ownership.md) -- allowlist di sini
 // cuma buat UX, bukan pengaman sebenarnya.
-const ALLOWED_EMAILS = indraanggriawan17@gmail.com;
+const ALLOWED_EMAILS = ["indraanggriawan17@gmail.com"];
 // =================================================================
 
 const app = initializeApp(firebaseConfig);
@@ -151,7 +152,16 @@ el('btnLogin').addEventListener('click', () => {
   signInWithRedirect(auth, provider); // signInWithRedirect, bukan popup -- lesson learned dari GitHub Pages
 });
 
-getRedirectResult(auth).catch((err) => console.error('Redirect sign-in error:', err));
+getRedirectResult(auth).catch((err) => {
+  console.error('Redirect sign-in error:', err);
+  const box = el('authError');
+  box.hidden = false;
+  if (err.code === 'auth/unauthorized-domain') {
+    box.textContent = 'Domain ini belum diizinkan di Firebase Auth. Tambahkan "' + window.location.hostname + '" ke Authentication \u2192 Settings \u2192 Authorized domains.';
+  } else {
+    box.textContent = 'Login gagal: ' + err.code + ' -- ' + err.message;
+  }
+});
 
 onAuthStateChanged(auth, (user) => {
   currentUser = user;
