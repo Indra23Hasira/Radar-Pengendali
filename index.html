@@ -69,6 +69,15 @@
   #userBadge img { width:26px; height:26px; border-radius:50%; }
 
   [hidden] { display:none !important; }
+
+  .tabs { display:flex; gap:4px; border-bottom:1px solid var(--border); margin-bottom:18px; }
+  .tab-btn {
+    font-family:'IBM Plex Sans',sans-serif; font-size:14px; font-weight:600; color:var(--ink-muted);
+    background:none; border:none; border-bottom:2px solid transparent; padding:10px 14px; cursor:pointer;
+  }
+  .tab-btn.active { color:var(--accent-ink); border-bottom-color:var(--accent); }
+  .tab-content { display:none; }
+  .tab-content.active { display:block; }
 </style>
 </head>
 <body>
@@ -90,30 +99,66 @@
     <div id="authError" class="callout denied" hidden></div>
   </div>
 
-  <!-- UPLOAD PANEL -->
-  <div class="panel" id="uploadPanel" hidden>
-    <h2>1. Upload file</h2>
-    <label class="drop-zone" id="dropZone">
-      <div id="dropLabel">Drag &amp; drop file .xlsx di sini, atau klik untuk pilih file</div>
-      <input type="file" id="fileInput" accept=".xlsx">
-    </label>
+  <!-- TABS -->
+  <div class="tabs" id="tabBar" hidden>
+    <button class="tab-btn active" data-tab="ksei">Update Kepemilikan (KSEI)</button>
+    <button class="tab-btn" data-tab="klasifikasi">Import Klasifikasi Grup</button>
   </div>
 
-  <!-- PREVIEW PANEL -->
-  <div class="panel" id="previewPanel" hidden>
-    <h2>2. Preview &mdash; belum ditulis ke Firestore</h2>
-    <div id="previewLog" class="log"></div>
-    <div class="summary-grid" id="summaryGrid"></div>
-    <div style="margin-top:14px; display:flex; gap:10px;">
-      <button class="btn btn-confirm" id="btnConfirm">Tulis ke Firestore</button>
-      <button class="btn" id="btnCancel">Batal</button>
+  <!-- ================= TAB: KSEI ================= -->
+  <div class="tab-content active" id="tab-ksei">
+    <!-- UPLOAD PANEL -->
+    <div class="panel" id="uploadPanel" hidden>
+      <h2>1. Upload file</h2>
+      <label class="drop-zone" id="dropZone">
+        <div id="dropLabel">Drag &amp; drop file .xlsx di sini, atau klik untuk pilih file</div>
+        <input type="file" id="fileInput" accept=".xlsx">
+      </label>
+    </div>
+
+    <!-- PREVIEW PANEL -->
+    <div class="panel" id="previewPanel" hidden>
+      <h2>2. Preview &mdash; belum ditulis ke Firestore</h2>
+      <div id="previewLog" class="log"></div>
+      <div class="summary-grid" id="summaryGrid"></div>
+      <div style="margin-top:14px; display:flex; gap:10px;">
+        <button class="btn btn-confirm" id="btnConfirm">Tulis ke Firestore</button>
+        <button class="btn" id="btnCancel">Batal</button>
+      </div>
+    </div>
+
+    <!-- RESULT PANEL -->
+    <div class="panel" id="resultPanel" hidden>
+      <h2>3. Hasil</h2>
+      <div id="resultLog" class="log"></div>
     </div>
   </div>
 
-  <!-- RESULT PANEL -->
-  <div class="panel" id="resultPanel" hidden>
-    <h2>3. Hasil</h2>
-    <div id="resultLog" class="log"></div>
+  <!-- ================= TAB: KLASIFIKASI ================= -->
+  <div class="tab-content" id="tab-klasifikasi" hidden>
+    <div class="panel">
+      <h2>1. Upload worksheet klasifikasi</h2>
+      <p class="sub" style="margin-bottom:14px;">File Excel dengan kolom "Nama Pemegang Saham (normalisasi)" dan "Grup (isi/verifikasi di sini)". Cuma baris yang kolom Grup-nya terisi yang diproses.</p>
+      <label class="drop-zone" id="dropZoneKlas">
+        <div id="dropLabelKlas">Drag &amp; drop file worksheet klasifikasi di sini, atau klik untuk pilih file</div>
+        <input type="file" id="fileInputKlas" accept=".xlsx">
+      </label>
+    </div>
+
+    <div class="panel" id="previewPanelKlas" hidden>
+      <h2>2. Preview &mdash; belum ditulis ke Firestore</h2>
+      <div id="previewLogKlas" class="log"></div>
+      <div class="summary-grid" id="summaryGridKlas"></div>
+      <div style="margin-top:14px; display:flex; gap:10px;">
+        <button class="btn btn-confirm" id="btnConfirmKlas">Tulis ke Firestore</button>
+        <button class="btn" id="btnCancelKlas">Batal</button>
+      </div>
+    </div>
+
+    <div class="panel" id="resultPanelKlas" hidden>
+      <h2>3. Hasil</h2>
+      <div id="resultLogKlas" class="log"></div>
+    </div>
   </div>
 
 </div>
@@ -191,6 +236,7 @@ onAuthStateChanged(auth, (user) => {
 
   const allowed = ALLOWED_EMAILS.includes(user.email);
   el('authDenied').hidden = allowed;
+  el('tabBar').hidden = !allowed;
   el('uploadPanel').hidden = !allowed;
 });
 
@@ -516,6 +562,237 @@ el('btnConfirm').addEventListener('click', async () => {
     if (currentPlan.summary.newHolders > 0) {
       logLine(logEl, `\u2139 ${currentPlan.summary.newHolders} holder baru berstatus "unclassified" -- klasifikasi manual di collection "holders".`, 'warn');
     }
+    logLine(logEl, 'Selesai.', 'ok');
+  } catch (err) {
+    logLine(logEl, 'GAGAL menulis: ' + err.message, 'err');
+    console.error(err);
+  }
+});
+
+// ============================================================
+// TAB SWITCHING
+// ============================================================
+document.querySelectorAll('.tab-btn').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach((p) => p.classList.remove('active'));
+    btn.classList.add('active');
+    el('tab-' + btn.dataset.tab).classList.add('active');
+  });
+});
+
+// ============================================================
+// TAB: IMPORT KLASIFIKASI GRUP
+// ============================================================
+let currentKlasFile = null;
+let currentKlasPlan = null;
+
+const dropZoneKlas = el('dropZoneKlas');
+const fileInputKlas = el('fileInputKlas');
+dropZoneKlas.addEventListener('click', () => fileInputKlas.click());
+dropZoneKlas.addEventListener('dragover', (e) => { e.preventDefault(); dropZoneKlas.classList.add('drag'); });
+dropZoneKlas.addEventListener('dragleave', () => dropZoneKlas.classList.remove('drag'));
+dropZoneKlas.addEventListener('drop', (e) => {
+  e.preventDefault(); dropZoneKlas.classList.remove('drag');
+  if (e.dataTransfer.files[0]) handleKlasFile(e.dataTransfer.files[0]);
+});
+fileInputKlas.addEventListener('change', (e) => { if (e.target.files[0]) handleKlasFile(e.target.files[0]); });
+
+async function handleKlasFile(file) {
+  currentKlasFile = file;
+  el('dropLabelKlas').textContent = 'File dipilih: ' + file.name;
+  await runKlasPreview(file);
+}
+
+// Parse worksheet klasifikasi: kolom B=holder_norm, F=grup (0-indexed: 1 dan 5)
+function parseClassificationWorkbook(workbook) {
+  const sheetName = workbook.SheetNames.find((n) => /klasifikasi/i.test(n)) || workbook.SheetNames[0];
+  const ws = workbook.Sheets[sheetName];
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null });
+  const entries = [];
+  const skippedEmpty = [];
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r] || [];
+    const holderNorm = row[1];
+    const grup = row[5];
+    if (!holderNorm) continue;
+    if (grup && String(grup).trim()) {
+      entries.push({ holderNorm: String(holderNorm).trim(), groupName: String(grup).trim() });
+    } else {
+      skippedEmpty.push(String(holderNorm).trim());
+    }
+  }
+  return { entries, skippedEmptyCount: skippedEmpty.length };
+}
+
+// Bangun rencana: holder mana yang berubah group_id-nya, grup mana yang perlu
+// dibuat/dipastikan ada, DAN ticker mana yang perlu di-resync ownership-nya
+// (karena holder itu ikut nentuin top_holder_group_id/name di ownership doc).
+function buildClassificationPlan(entries, existingHolders, existingGroups) {
+  const groupWrites = new Map(); // group_id -> name
+  const holderUpdates = [];      // { holderId, groupId, groupName }
+  const notFound = [];
+  const alreadyCorrect = [];
+  const affectedTickers = new Set();
+
+  for (const e of entries) {
+    const holderId = slugify(e.holderNorm);
+    const groupId = slugify(e.groupName);
+    const existing = existingHolders.get(holderId);
+
+    if (!existing) {
+      notFound.push(e.holderNorm);
+      continue;
+    }
+    if (!groupWrites.has(groupId)) groupWrites.set(groupId, e.groupName);
+
+    if (existing.group_id === groupId && existing.classification_status === 'verified') {
+      alreadyCorrect.push(e.holderNorm);
+      continue;
+    }
+
+    holderUpdates.push({ holderId, groupId, groupName: e.groupName, holderNorm: e.holderNorm });
+    for (const tk of (existing.tickers || [])) affectedTickers.add(tk);
+  }
+
+  return {
+    groupWrites, holderUpdates, notFound, alreadyCorrect,
+    affectedTickers: Array.from(affectedTickers),
+    summary: {
+      totalEntries: entries.length,
+      groupsInvolved: groupWrites.size,
+      holdersToUpdate: holderUpdates.length,
+      alreadyCorrect: alreadyCorrect.length,
+      notFound: notFound.length,
+      tickersToResync: affectedTickers.size,
+    },
+  };
+}
+
+async function readOwnershipDocs(tickers) {
+  const map = new Map();
+  const chunkSize = 20;
+  for (let i = 0; i < tickers.length; i += chunkSize) {
+    const chunk = tickers.slice(i, i + chunkSize);
+    await Promise.all(chunk.map(async (ticker) => {
+      const snap = await getDoc(doc(db, 'ownership', ticker));
+      if (snap.exists()) map.set(ticker, snap.data());
+    }));
+  }
+  return map;
+}
+
+function resyncOwnershipDoc(ownershipData, holderIdToGroup) {
+  const newHolders = ownershipData.holders.map((h) => {
+    const upd = holderIdToGroup.get(h.holder_id);
+    if (!upd) return h;
+    return { ...h, group_id: upd.groupId, group_name: upd.groupName, classification_status: 'verified' };
+  });
+  const top = newHolders.slice().sort((a, b) => b.pct - a.pct)[0] || null;
+  return {
+    ...ownershipData,
+    holders: newHolders,
+    top_holder_group_id: top ? top.group_id : null,
+    top_holder_group_name: top ? top.group_name : null,
+    updated_at: serverTimestamp(),
+  };
+}
+
+async function runKlasPreview(file) {
+  el('previewPanelKlas').hidden = false;
+  el('resultPanelKlas').hidden = true;
+  const logEl = el('previewLogKlas');
+  logEl.innerHTML = '';
+  el('summaryGridKlas').innerHTML = '';
+  el('btnConfirmKlas').disabled = true;
+
+  try {
+    logLine(logEl, '[1/3] Membaca worksheet...');
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array' });
+    const { entries, skippedEmptyCount } = parseClassificationWorkbook(wb);
+    logLine(logEl, `      baris dengan Grup terisi: ${entries.length} | dilewati (Grup kosong): ${skippedEmptyCount}`);
+
+    logLine(logEl, '[2/3] Membaca state Firestore saat ini...');
+    const [existingHolders, existingGroups] = await Promise.all([readExistingHolders(), readGroups()]);
+    logLine(logEl, `      holders tersimpan: ${existingHolders.size} | groups tersimpan: ${existingGroups.size}`);
+
+    logLine(logEl, '[3/3] Menyusun rencana (termasuk cek ticker mana yang perlu di-resync)...');
+    const plan = buildClassificationPlan(entries, existingHolders, existingGroups);
+    currentKlasPlan = plan;
+
+    if (plan.notFound.length > 0) {
+      logLine(logEl, `  \u26A0 ${plan.notFound.length} nama holder di worksheet TIDAK ketemu di Firestore (dilewati):`, 'warn');
+      for (const n of plan.notFound.slice(0, 10)) logLine(logEl, '    - ' + n, 'warn');
+      if (plan.notFound.length > 10) logLine(logEl, `    ...dan ${plan.notFound.length - 10} lainnya`, 'warn');
+    }
+
+    const s = plan.summary;
+    el('summaryGridKlas').innerHTML = `
+      <div class="summary-item"><div class="label">Grup terlibat</div><div class="value">${s.groupsInvolved}</div></div>
+      <div class="summary-item"><div class="label">Holder diupdate</div><div class="value">${s.holdersToUpdate}</div></div>
+      <div class="summary-item"><div class="label">Sudah benar (skip)</div><div class="value">${s.alreadyCorrect}</div></div>
+      <div class="summary-item"><div class="label">Tidak ketemu</div><div class="value" style="color:${s.notFound>0?'var(--warn)':'inherit'}">${s.notFound}</div></div>
+      <div class="summary-item"><div class="label">Ticker perlu resync</div><div class="value">${s.tickersToResync}</div></div>
+    `;
+    logLine(logEl, 'Selesai. Cek ringkasan di atas, lalu klik "Tulis ke Firestore" kalau sudah oke.', 'ok');
+    el('btnConfirmKlas').disabled = false;
+  } catch (err) {
+    logLine(logEl, 'GAGAL: ' + err.message, 'err');
+    console.error(err);
+  }
+}
+
+el('btnCancelKlas').addEventListener('click', () => {
+  el('previewPanelKlas').hidden = true;
+  currentKlasPlan = null;
+  fileInputKlas.value = '';
+  el('dropLabelKlas').textContent = 'Drag & drop file worksheet klasifikasi di sini, atau klik untuk pilih file';
+});
+
+el('btnConfirmKlas').addEventListener('click', async () => {
+  if (!currentKlasPlan) return;
+  el('btnConfirmKlas').disabled = true;
+  el('resultPanelKlas').hidden = false;
+  const logEl = el('resultLogKlas');
+  logEl.innerHTML = '';
+
+  try {
+    const plan = currentKlasPlan;
+
+    logLine(logEl, '[1/3] Menulis groups...');
+    const groupOps = Array.from(plan.groupWrites.entries()).map(([groupId, name]) => ({
+      ref: doc(db, 'groups', groupId), data: { name, updated_at: serverTimestamp() }, merge: true,
+    }));
+    const groupsWritten = await commitInChunks(groupOps);
+    logLine(logEl, `      ${groupsWritten} groups ditulis/diupdate`, 'ok');
+
+    logLine(logEl, '[2/3] Menulis holders (group_id + status verified)...');
+    const holderIdToGroup = new Map();
+    const holderOps = plan.holderUpdates.map((u) => {
+      holderIdToGroup.set(u.holderId, { groupId: u.groupId, groupName: u.groupName });
+      return {
+        ref: doc(db, 'holders', u.holderId),
+        data: {
+          group_id: u.groupId, classification_status: 'verified',
+          classified_at: serverTimestamp(), classified_by: currentUser.email,
+          updated_at: serverTimestamp(),
+        },
+        merge: true,
+      };
+    });
+    const holdersWritten = await commitInChunks(holderOps);
+    logLine(logEl, `      ${holdersWritten} holders diupdate`, 'ok');
+
+    logLine(logEl, `[3/3] Resync ${plan.affectedTickers.length} ownership doc yang kepengaruh...`);
+    const ownershipDocs = await readOwnershipDocs(plan.affectedTickers);
+    const resyncOps = [];
+    for (const [ticker, data] of ownershipDocs.entries()) {
+      resyncOps.push({ ref: doc(db, 'ownership', ticker), data: resyncOwnershipDoc(data, holderIdToGroup), merge: true });
+    }
+    const resyncedCount = await commitInChunks(resyncOps);
+    logLine(logEl, `      ${resyncedCount} ownership doc di-resync`, 'ok');
+
     logLine(logEl, 'Selesai.', 'ok');
   } catch (err) {
     logLine(logEl, 'GAGAL menulis: ' + err.message, 'err');
