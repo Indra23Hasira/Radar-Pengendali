@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin &mdash; Update Kepemilikan Saham</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+  :root {
+    --bg:#edf0ee; --surface:#fff; --surface-2:#e2e7e3; --border:#cdd4cd;
+    --ink:#1b211e; --ink-muted:#5b655f; --accent:#3d4a63; --accent-ink:#2a3346;
+    --buy:#2f7a4d; --buy-bg:#e3f0e6; --sell:#b23b3b; --sell-bg:#f6e4e2;
+    --warn:#a8752f; --warn-bg:#f3ead9;
+    --shadow: 0 1px 2px rgba(27,33,30,0.06), 0 6px 20px rgba(27,33,30,0.05);
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:'IBM Plex Sans',sans-serif; line-height:1.5; }
+  .mono { font-family:'IBM Plex Mono',monospace; font-variant-numeric: tabular-nums; }
+  .wrap { max-width: 760px; margin:0 auto; padding: 40px 24px 96px; }
+  .eyebrow { font-family:'IBM Plex Mono',monospace; font-size:12.5px; letter-spacing:0.09em; text-transform:uppercase; color:var(--accent-ink); display:flex; align-items:center; gap:8px; }
+  .eyebrow .dot { width:6px; height:6px; border-radius:50%; background:var(--accent); }
+  h1 { font-size: 26px; font-weight:700; margin: 8px 0 6px; }
+  .sub { color:var(--ink-muted); font-size:14.5px; max-width: 60ch; margin-bottom: 28px; }
+  .panel { background:var(--surface); border:1px solid var(--border); border-radius:10px; box-shadow:var(--shadow); padding:22px 24px; margin-bottom:18px; }
+  .panel h2 { font-size:14px; font-weight:700; margin:0 0 12px; }
+
+  .btn { font-family:'IBM Plex Sans',sans-serif; font-size:14px; font-weight:600; padding:10px 18px; border-radius:7px; border:1px solid var(--border); background:var(--surface); color:var(--ink); cursor:pointer; }
+  .btn:hover { background: var(--surface-2); }
+  .btn:disabled { opacity:0.45; cursor:not-allowed; }
+  .btn-primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .btn-primary:hover { background:var(--accent-ink); }
+  .btn-confirm { background:var(--buy); color:#fff; border-color:var(--buy); }
+
+  .drop-zone {
+    border: 2px dashed var(--border); border-radius: 10px; padding: 36px 20px;
+    text-align:center; color:var(--ink-muted); font-size:14px; cursor:pointer;
+  }
+  .drop-zone.drag { border-color: var(--accent); background: var(--surface-2); }
+  .drop-zone input { display:none; }
+
+  .status-row { display:flex; align-items:center; gap:10px; padding: 8px 0; font-size:14px; }
+  .status-row .icon { width:18px; text-align:center; }
+
+  .badge { font-family:'IBM Plex Mono',monospace; font-size:12px; padding:3px 9px; border-radius:999px; border:1px solid var(--border); color:var(--ink-muted); }
+
+  .log { background:#1b211e; color:#d8ded9; font-family:'IBM Plex Mono',monospace; font-size:12.5px; padding:14px 16px; border-radius:8px; max-height:340px; overflow-y:auto; white-space:pre-wrap; line-height:1.6; }
+  .log .warn { color:#e8c27a; }
+  .log .err { color:#e0716b; }
+  .log .ok { color:#7ec99a; }
+
+  .summary-grid { display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin: 14px 0; }
+  .summary-item { background:var(--surface-2); border-radius:8px; padding:10px 12px; }
+  .summary-item .label { font-size:11.5px; color:var(--ink-muted); text-transform:uppercase; letter-spacing:0.05em; }
+  .summary-item .value { font-family:'IBM Plex Mono',monospace; font-size:18px; font-weight:700; }
+
+  .callout { padding:12px 14px; border-radius:8px; font-size:13.5px; margin-top:12px; }
+  .callout.warn { background:var(--warn-bg); border:1px solid var(--warn); color:var(--accent-ink); }
+  .callout.denied { background:var(--sell-bg); border:1px solid var(--sell); color:var(--sell); }
+
+  #userBadge { display:flex; align-items:center; gap:8px; font-size:13.5px; }
+  #userBadge img { width:26px; height:26px; border-radius:50%; }
+
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow"><span class="dot"></span>APK RADAR &mdash; Admin</div>
+  <h1>Update Kepemilikan Saham (KSEI)</h1>
+  <p class="sub">Upload file "Pemegang Saham di Atas 5%" dari IDX/KSEI. Diparse di browser, ditulis langsung ke Firestore. Halaman ini butuh login &amp; akun yang diizinkan.</p>
+
+  <!-- AUTH PANEL -->
+  <div class="panel" id="authPanel">
+    <h2>Akses</h2>
+    <div id="authSignedOut">
+      <button class="btn btn-primary" id="btnLogin">Login dengan Google</button>
+    </div>
+    <div id="authSignedIn" hidden>
+      <div id="userBadge"></div>
+      <div id="authDenied" class="callout denied" hidden>Akun ini tidak diizinkan mengakses halaman admin ini.</div>
+    </div>
+  </div>
+
+  <!-- UPLOAD PANEL -->
+  <div class="panel" id="uploadPanel" hidden>
+    <h2>1. Upload file</h2>
+    <label class="drop-zone" id="dropZone">
+      <div id="dropLabel">Drag &amp; drop file .xlsx di sini, atau klik untuk pilih file</div>
+      <input type="file" id="fileInput" accept=".xlsx">
+    </label>
+  </div>
+
+  <!-- PREVIEW PANEL -->
+  <div class="panel" id="previewPanel" hidden>
+    <h2>2. Preview &mdash; belum ditulis ke Firestore</h2>
+    <div id="previewLog" class="log"></div>
+    <div class="summary-grid" id="summaryGrid"></div>
+    <div style="margin-top:14px; display:flex; gap:10px;">
+      <button class="btn btn-confirm" id="btnConfirm">Tulis ke Firestore</button>
+      <button class="btn" id="btnCancel">Batal</button>
+    </div>
+  </div>
+
+  <!-- RESULT PANEL -->
+  <div class="panel" id="resultPanel" hidden>
+    <h2>3. Hasil</h2>
+    <div id="resultLog" class="log"></div>
+  </div>
+
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+import {
+  getAuth, GoogleAuthProvider, signInWithRedirect, getRedirectResult, onAuthStateChanged
+} from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
+import {
+  getFirestore, collection, doc, getDocs, getDoc, query, orderBy, limit,
+  writeBatch, serverTimestamp
+} from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+
+// ====== ISI SESUAI PROJECT KAMU (sama seperti config di radar-idx-hasira) ======
+const firebaseConfig = {
+  apiKey: "AIzaSyAlTrAo6MMXjuiiFxdIW58UeaEl4ErMtiI",
+  authDomain: "radar-idx-hasira.firebaseapp.com",
+  projectId: "radar-idx-hasira",
+  storageBucket: "radar-idx-hasira.firebasestorage.app",
+  messagingSenderId: "675342054884",
+  appId: "1:675342054884:web:cd557eacc3b1da649c03f1",
+  measurementId: "G-Q45RVTZBBC",
+};
+// Email yang boleh akses halaman ini. Rules Firestore-nya HARUS cek hal yang
+// sama (lihat dokumen firestore-rules-ownership.md) -- allowlist di sini
+// cuma buat UX, bukan pengaman sebenarnya.
+const ALLOWED_EMAILS = ["GANTI_DENGAN_EMAIL_KAMU@gmail.com"];
+// =================================================================
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+let currentUser = null;
+let currentFile = null;
+let currentPlan = null;
+
+const el = (id) => document.getElementById(id);
+
+// ---------- AUTH ----------
+el('btnLogin').addEventListener('click', () => {
+  const provider = new GoogleAuthProvider();
+  signInWithRedirect(auth, provider); // signInWithRedirect, bukan popup -- lesson learned dari GitHub Pages
+});
+
+getRedirectResult(auth).catch((err) => console.error('Redirect sign-in error:', err));
+
+onAuthStateChanged(auth, (user) => {
+  currentUser = user;
+  if (!user) {
+    el('authSignedOut').hidden = false;
+    el('authSignedIn').hidden = true;
+    el('uploadPanel').hidden = true;
+    return;
+  }
+  el('authSignedOut').hidden = true;
+  el('authSignedIn').hidden = false;
+  el('userBadge').innerHTML = `<img src="${user.photoURL || ''}"><span>${user.email}</span>`;
+
+  const allowed = ALLOWED_EMAILS.includes(user.email);
+  el('authDenied').hidden = allowed;
+  el('uploadPanel').hidden = !allowed;
+});
+
+// ---------- UPLOAD (drag & drop) ----------
+const dropZone = el('dropZone');
+const fileInput = el('fileInput');
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('drag'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag'));
+dropZone.addEventListener('drop', (e) => {
+  e.preventDefault(); dropZone.classList.remove('drag');
+  if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', (e) => { if (e.target.files[0]) handleFile(e.target.files[0]); });
+
+async function handleFile(file) {
+  currentFile = file;
+  el('dropLabel').textContent = 'File dipilih: ' + file.name;
+  await runPreview(file);
+}
+
+// ---------- PARSING LOGIC (porting dari parseKseiFile.js / buildWritePlan.js) ----------
+const NOISE_KEYWORDS = [
+  'BANK','SEKURITAS','SECURITIES','KAY HIAN','ASABRI','TASPEN','BPJS','DAPEN',
+  'KEJAKSAAN','DANAREKSA','UBS AG','DBS BANK','JULIUS BAER','OCBC SECURITIES',
+  'BP2S','JPMCB','CITIBANK','HSBC','DEUTSCHE BANK','STANDARD CHARTERED',
+  'CIMB','INDO PREMIER','PHILLIP SEKURITAS','SUCOR SEKURITAS','KUSTODIAN','CUSTODIAN',
+  'ASURANSI JIWA','DANA PENSIUN','PEGADAIAN','REKSA DANA','UNION BANCAIRE','BNP PARIBAS',
+];
+const TICKER_RE = /^[A-Z][A-Z0-9]{2,4}$/;
+const SHEET_NAME_DATE_RE = /Balance_SID_(\d{4})(\d{2})(\d{2})_/;
+
+function normalizeHolderName(raw) {
+  if (!raw) return '';
+  let n = String(raw).toUpperCase();
+  n = n.replace(/[.,]/g, '').replace(/\bTBK\b/g, '').replace(/\bPT\b/g, '').replace(/\s+/g, ' ').trim();
+  return n;
+}
+function isNoiseHolder(n) { return NOISE_KEYWORDS.some((kw) => n.includes(kw)); }
+function slugify(text) {
+  return String(text).toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 100).replace(/-+$/, '');
+}
+function toNumber(v) {
+  if (v === null || v === undefined || v === '') return null;
+  if (typeof v === 'number') return v;
+  const n = parseFloat(String(v).replace(/,/g, '').trim());
+  return Number.isFinite(n) ? n : null;
+}
+function findSourceDate(sheetName, titleCellValue) {
+  const m = SHEET_NAME_DATE_RE.exec(sheetName || '');
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  if (titleCellValue) {
+    const m2 = /per tanggal (\d{1,2}) (\w+) (\d{4})/i.exec(titleCellValue);
+    if (m2) {
+      const months = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+      const mi = months.indexOf(m2[2].slice(0,3).toLowerCase());
+      if (mi >= 0) return `${m2[3]}-${String(mi+1).padStart(2,'0')}-${String(m2[1]).padStart(2,'0')}`;
+    }
+  }
+  return null;
+}
+
+function parseKseiWorkbook(workbook) {
+  const sheetName = workbook.SheetNames.find((n) => /^Balance_SID_/.test(n)) || workbook.SheetNames[0];
+  const ws = workbook.Sheets[sheetName];
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null });
+  const titleCell = rows[0] && rows[0][0];
+  const sourceDate = findSourceDate(sheetName, titleCell);
+
+  const COL = { kode: 1, namaEmiten: 2, namaRekening: 5, jumlahSaham: 14, gabungan: 15, pct: 16 };
+  const anomalies = [];
+  const tickerData = {};
+  let currentTicker = null;
+  let totalHolderRows = 0;
+
+  for (let r = 4; r < rows.length; r++) {
+    const row = rows[r] || [];
+    const kodeRaw = row[COL.kode];
+    const namaEmitenRaw = row[COL.namaEmiten];
+
+    if (kodeRaw !== null && kodeRaw !== undefined && kodeRaw !== '') {
+      if (typeof kodeRaw !== 'string') {
+        anomalies.push({ row: r+1, rawValue: kodeRaw, namaEmiten: namaEmitenRaw, reason: 'kode_efek bukan string' });
+        currentTicker = null;
+      } else {
+        const kode = kodeRaw.trim().toUpperCase();
+        if (!TICKER_RE.test(kode)) {
+          anomalies.push({ row: r+1, rawValue: kodeRaw, namaEmiten: namaEmitenRaw, reason: 'format kode_efek tidak valid' });
+          currentTicker = null;
+        } else {
+          currentTicker = kode;
+          if (!tickerData[currentTicker]) tickerData[currentTicker] = { namaEmiten: namaEmitenRaw || null, holderRows: [], impliedTotals: [] };
+          else if (namaEmitenRaw) tickerData[currentTicker].namaEmiten = namaEmitenRaw;
+        }
+      }
+    }
+    if (!currentTicker) continue;
+
+    const pct = toNumber(row[COL.pct]);
+    const gabungan = toNumber(row[COL.gabungan]);
+    const namaRekening = row[COL.namaRekening];
+    if (pct !== null && pct > 0 && namaRekening) {
+      const holderNorm = normalizeHolderName(namaRekening);
+      tickerData[currentTicker].holderRows.push({ holderNorm, holderRawExample: String(namaRekening).trim(), pct, jumlahSaham: toNumber(row[COL.jumlahSaham]) });
+      totalHolderRows++;
+      if (gabungan && pct) tickerData[currentTicker].impliedTotals.push(gabungan / (pct/100));
+    }
+  }
+
+  const tickers = {};
+  for (const [ticker, data] of Object.entries(tickerData)) {
+    const totals = data.impliedTotals.slice().sort((a,b) => a-b);
+    let sharesOutstanding = null, consistent = true;
+    if (totals.length > 0) {
+      const mid = Math.floor(totals.length/2);
+      sharesOutstanding = totals.length % 2 ? totals[mid] : (totals[mid-1]+totals[mid])/2;
+      if (totals.length >= 2) consistent = (totals[totals.length-1]-totals[0]) / sharesOutstanding < 0.01;
+    }
+    tickers[ticker] = { namaEmiten: data.namaEmiten, sharesOutstanding, sharesOutstandingConsistent: consistent, holders: data.holderRows };
+  }
+  return { sourceDate, tickers, anomalies, stats: { totalRows: rows.length-4, totalTickers: Object.keys(tickers).length, totalHolderRows } };
+}
+
+function buildWritePlan(parseResult, existingHolders, groupsById, latestHistoryByTicker, fileRef) {
+  const { sourceDate, tickers, anomalies } = parseResult;
+  const holderAgg = new Map();
+  for (const [ticker, t] of Object.entries(tickers)) {
+    for (const h of t.holders) {
+      const holderId = slugify(h.holderNorm);
+      if (!holderId) continue;
+      if (!holderAgg.has(holderId)) holderAgg.set(holderId, { holderId, holderNorm: h.holderNorm, rawAliases: new Set(), tickers: new Set(), isNoise: isNoiseHolder(h.holderNorm) });
+      const agg = holderAgg.get(holderId);
+      agg.rawAliases.add(h.holderRawExample);
+      agg.tickers.add(ticker);
+    }
+  }
+
+  const holderWrites = [];
+  for (const agg of holderAgg.values()) {
+    const existing = existingHolders.get(agg.holderId);
+    if (existing) {
+      const mergedTickers = Array.from(new Set([...(existing.tickers||[]), ...agg.tickers]));
+      const mergedAliases = Array.from(new Set([...(existing.raw_aliases||[]), ...agg.rawAliases]));
+      const changed = mergedTickers.length !== (existing.tickers||[]).length || mergedAliases.length !== (existing.raw_aliases||[]).length;
+      if (changed) holderWrites.push({ holderId: agg.holderId, mode: 'merge', data: { tickers: mergedTickers, n_tickers: mergedTickers.length, raw_aliases: mergedAliases, updated_at: serverTimestamp() } });
+    } else {
+      holderWrites.push({ holderId: agg.holderId, mode: 'create', data: {
+        holder_norm: agg.holderNorm, display_name: Array.from(agg.rawAliases)[0] || agg.holderNorm,
+        raw_aliases: Array.from(agg.rawAliases), group_id: null,
+        classification_status: agg.isNoise ? 'excluded_institutional' : 'unclassified', is_noise: agg.isNoise,
+        tickers: Array.from(agg.tickers), n_tickers: agg.tickers.size, notes: '', classified_at: null, classified_by: null,
+        updated_at: serverTimestamp(),
+      }});
+    }
+  }
+
+  const holderLookup = new Map();
+  for (const [id, d] of existingHolders.entries()) holderLookup.set(id, d);
+  for (const w of holderWrites) holderLookup.set(w.holderId, w.mode === 'create' ? w.data : { ...(existingHolders.get(w.holderId)||{}), ...w.data });
+
+  const ownershipWrites = [];
+  const historyWrites = [];
+  const skippedAsUnchanged = [];
+
+  for (const [ticker, t] of Object.entries(tickers)) {
+    const holdersDenorm = t.holders.map((h) => {
+      const holderId = slugify(h.holderNorm);
+      const hd = holderLookup.get(holderId) || {};
+      const groupId = hd.group_id || null;
+      const groupName = groupId ? (groupsById.get(groupId)||{}).name || null : null;
+      return { holder_id: holderId, holder_display: h.holderRawExample, pct: h.pct, group_id: groupId, group_name: groupName, classification_status: hd.classification_status || 'unclassified' };
+    });
+    const top = holdersDenorm.slice().sort((a,b) => b.pct - a.pct)[0] || null;
+    const totalPct = holdersDenorm.reduce((s,h) => s+h.pct, 0);
+    const ownershipDoc = {
+      ticker, nama_emiten: t.namaEmiten, source_date: sourceDate, file_ref: fileRef,
+      shares_outstanding: t.sharesOutstanding, shares_outstanding_consistent: t.sharesOutstandingConsistent,
+      holders: holdersDenorm, top_holder_group_id: top ? top.group_id : null, top_holder_group_name: top ? top.group_name : null,
+      total_pct_disclosed: Math.round(totalPct*100)/100, updated_at: serverTimestamp(),
+    };
+    ownershipWrites.push({ ticker, data: ownershipDoc });
+
+    const prev = latestHistoryByTicker.get(ticker);
+    const currentSig = holdersDenorm.map((h) => `${h.holder_id}:${h.pct}`).sort().join('|');
+    const prevSig = prev ? (prev.holders||[]).map((h) => `${h.holder_id}:${h.pct}`).sort().join('|') : null;
+    if (currentSig !== prevSig) historyWrites.push({ ticker, sourceDate, data: ownershipDoc });
+    else skippedAsUnchanged.push(ticker);
+  }
+
+  return { sourceDate, holderWrites, ownershipWrites, historyWrites, skippedAsUnchanged, anomalies, summary: {
+    totalTickers: Object.keys(tickers).length, totalHoldersTouched: holderAgg.size,
+    newHolders: holderWrites.filter(w=>w.mode==='create').length, updatedHolders: holderWrites.filter(w=>w.mode==='merge').length,
+    historyWritten: historyWrites.length, historySkippedUnchanged: skippedAsUnchanged.length, anomalyCount: anomalies.length,
+  }};
+}
+
+// ---------- FIRESTORE READ/WRITE ----------
+async function readExistingHolders() {
+  const snap = await getDocs(collection(db, 'holders'));
+  const map = new Map();
+  snap.forEach((d) => map.set(d.id, d.data()));
+  return map;
+}
+async function readGroups() {
+  const snap = await getDocs(collection(db, 'groups'));
+  const map = new Map();
+  snap.forEach((d) => map.set(d.id, d.data()));
+  return map;
+}
+async function readLatestHistoryForTickers(tickers) {
+  const map = new Map();
+  const chunkSize = 20;
+  for (let i = 0; i < tickers.length; i += chunkSize) {
+    const chunk = tickers.slice(i, i + chunkSize);
+    await Promise.all(chunk.map(async (ticker) => {
+      const q = query(collection(db, 'ownership', ticker, 'history'), orderBy('source_date','desc'), limit(1));
+      const snap = await getDocs(q);
+      if (!snap.empty) map.set(ticker, snap.docs[0].data());
+    }));
+  }
+  return map;
+}
+async function commitInChunks(operations) {
+  const BATCH_LIMIT = 450;
+  let written = 0;
+  for (let i = 0; i < operations.length; i += BATCH_LIMIT) {
+    const batch = writeBatch(db);
+    const chunk = operations.slice(i, i + BATCH_LIMIT);
+    for (const op of chunk) batch.set(op.ref, op.data, op.merge ? { merge: true } : undefined);
+    await batch.commit();
+    written += chunk.length;
+  }
+  return written;
+}
+async function applyWritePlan(plan) {
+  const holderOps = plan.holderWrites.map((w) => ({ ref: doc(db, 'holders', w.holderId), data: w.data, merge: w.mode === 'merge' }));
+  const ownershipOps = plan.ownershipWrites.map((w) => ({ ref: doc(db, 'ownership', w.ticker), data: w.data, merge: true }));
+  const historyOps = plan.historyWrites.map((w) => ({ ref: doc(db, 'ownership', w.ticker, 'history', w.sourceDate), data: w.data, merge: false }));
+  const holdersWritten = await commitInChunks(holderOps);
+  const ownershipWritten = await commitInChunks(ownershipOps);
+  const historyWrittenCount = await commitInChunks(historyOps);
+  return { holdersWritten, ownershipWritten, historyWrittenCount };
+}
+
+// ---------- UI FLOW ----------
+function logLine(container, text, cls) {
+  const line = document.createElement('div');
+  if (cls) line.className = cls;
+  line.textContent = text;
+  container.appendChild(line);
+  container.scrollTop = container.scrollHeight;
+}
+
+async function runPreview(file) {
+  el('previewPanel').hidden = false;
+  el('resultPanel').hidden = true;
+  const logEl = el('previewLog');
+  logEl.innerHTML = '';
+  el('summaryGrid').innerHTML = '';
+  el('btnConfirm').disabled = true;
+
+  try {
+    logLine(logEl, '[1/3] Membaca & parsing file...');
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array' });
+    const parseResult = parseKseiWorkbook(wb);
+    logLine(logEl, `      source_date: ${parseResult.sourceDate}`);
+    logLine(logEl, `      total ticker: ${parseResult.stats.totalTickers} | baris holder: ${parseResult.stats.totalHolderRows}`);
+
+    if (parseResult.anomalies.length > 0) {
+      logLine(logEl, `  \u26A0 ${parseResult.anomalies.length} anomali kode ticker (dikecualikan):`, 'warn');
+      for (const a of parseResult.anomalies) logLine(logEl, `    baris ${a.row} | ${JSON.stringify(a.rawValue)} | ${a.namaEmiten} | ${a.reason}`, 'warn');
+    }
+    const inconsistent = Object.entries(parseResult.tickers).filter(([,t]) => !t.sharesOutstandingConsistent).map(([tk]) => tk);
+    if (inconsistent.length > 0) logLine(logEl, `  \u26A0 Shares-outstanding tidak konsisten: ${inconsistent.join(', ')}`, 'warn');
+
+    logLine(logEl, '[2/3] Membaca state Firestore saat ini...');
+    const [existingHolders, groupsById] = await Promise.all([readExistingHolders(), readGroups()]);
+    const latestHistoryByTicker = await readLatestHistoryForTickers(Object.keys(parseResult.tickers));
+    logLine(logEl, `      holders tersimpan: ${existingHolders.size} | groups: ${groupsById.size}`);
+
+    logLine(logEl, '[3/3] Menyusun rencana tulis (BELUM ditulis)...');
+    const plan = buildWritePlan(parseResult, existingHolders, groupsById, latestHistoryByTicker, file.name);
+    currentPlan = plan;
+
+    const s = plan.summary;
+    el('summaryGrid').innerHTML = `
+      <div class="summary-item"><div class="label">Ticker diproses</div><div class="value">${s.totalTickers}</div></div>
+      <div class="summary-item"><div class="label">Holder baru</div><div class="value">${s.newHolders}</div></div>
+      <div class="summary-item"><div class="label">Holder diupdate</div><div class="value">${s.updatedHolders}</div></div>
+      <div class="summary-item"><div class="label">History ditulis</div><div class="value">${s.historyWritten}</div></div>
+      <div class="summary-item"><div class="label">History dilewati (tak berubah)</div><div class="value">${s.historySkippedUnchanged}</div></div>
+      <div class="summary-item"><div class="label">Anomali</div><div class="value" style="color:${s.anomalyCount>0?'var(--warn)':'inherit'}">${s.anomalyCount}</div></div>
+    `;
+    logLine(logEl, 'Selesai. Cek ringkasan di atas, lalu klik "Tulis ke Firestore" kalau sudah oke.', 'ok');
+    el('btnConfirm').disabled = false;
+  } catch (err) {
+    logLine(logEl, 'GAGAL: ' + err.message, 'err');
+    console.error(err);
+  }
+}
+
+el('btnCancel').addEventListener('click', () => {
+  el('previewPanel').hidden = true;
+  currentPlan = null;
+  fileInput.value = '';
+  el('dropLabel').textContent = 'Drag & drop file .xlsx di sini, atau klik untuk pilih file';
+});
+
+el('btnConfirm').addEventListener('click', async () => {
+  if (!currentPlan) return;
+  el('btnConfirm').disabled = true;
+  el('resultPanel').hidden = false;
+  const logEl = el('resultLog');
+  logEl.innerHTML = '';
+  logLine(logEl, 'Menulis ke Firestore...');
+  try {
+    const result = await applyWritePlan(currentPlan);
+    logLine(logEl, `Holders ditulis: ${result.holdersWritten}`, 'ok');
+    logLine(logEl, `Ownership ditulis: ${result.ownershipWritten}`, 'ok');
+    logLine(logEl, `History ditulis: ${result.historyWrittenCount}`, 'ok');
+    if (currentPlan.summary.newHolders > 0) {
+      logLine(logEl, `\u2139 ${currentPlan.summary.newHolders} holder baru berstatus "unclassified" -- klasifikasi manual di collection "holders".`, 'warn');
+    }
+    logLine(logEl, 'Selesai.', 'ok');
+  } catch (err) {
+    logLine(logEl, 'GAGAL menulis: ' + err.message, 'err');
+    console.error(err);
+  }
+});
+</script>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</body>
+</html>
