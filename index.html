@@ -32,11 +32,19 @@
   .btn-confirm { background:var(--buy); color:#fff; border-color:var(--buy); }
 
   .drop-zone {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    width: 100%; box-sizing: border-box;
     border: 2px dashed var(--border); border-radius: 10px; padding: 36px 20px;
     text-align:center; color:var(--ink-muted); font-size:14px; cursor:pointer;
   }
   .drop-zone.drag { border-color: var(--accent); background: var(--surface-2); }
   .drop-zone input { display:none; }
+
+  .avatar-fallback {
+    width:26px; height:26px; border-radius:50%; background:var(--accent); color:#fff;
+    font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:center;
+    flex-shrink:0;
+  }
 
   .status-row { display:flex; align-items:center; gap:10px; padding: 8px 0; font-size:14px; }
   .status-row .icon { width:18px; text-align:center; }
@@ -173,7 +181,13 @@ onAuthStateChanged(auth, (user) => {
   }
   el('authSignedOut').hidden = true;
   el('authSignedIn').hidden = false;
-  el('userBadge').innerHTML = `<img src="${user.photoURL || ''}"><span>${user.email}</span>`;
+  const initial = (user.displayName || user.email || '?').trim().charAt(0).toUpperCase();
+  const photoHtml = user.photoURL
+    ? `<img src="${user.photoURL}" referrerpolicy="no-referrer" alt=""
+         onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+       <span class="avatar-fallback" style="display:none;">${initial}</span>`
+    : `<span class="avatar-fallback">${initial}</span>`;
+  el('userBadge').innerHTML = `${photoHtml}<span>${user.email}</span>`;
 
   const allowed = ALLOWED_EMAILS.includes(user.email);
   el('authDenied').hidden = allowed;
