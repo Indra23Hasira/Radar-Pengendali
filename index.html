@@ -168,10 +168,11 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/fireba
 import {
   getAuth, GoogleAuthProvider, signInWithRedirect, getRedirectResult, onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
-import {
+import * as FS from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+const {
   getFirestore, collection, doc, getDocs, getDoc, query, orderBy, limit,
   writeBatch, serverTimestamp
-} from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+} = FS;
 
 // ====== ISI SESUAI PROJECT KAMU (sama seperti config di radar-idx-hasira) ======
 const firebaseConfig = {
@@ -196,6 +197,30 @@ const db = getFirestore(app);
 let currentUser = null;
 let currentFile = null;
 let currentPlan = null;
+
+// ---------- ARSIP HEMAT untuk Radar Konglo ----------
+// Konglo (halaman publik) cukup membaca 1 dokumen ringkasan ownership (radarBundles/ownership)
+// alih-alih ±840 dokumen tiap kali dibuka. Ringkasan dibangun ulang otomatis setelah setiap tulis di sini.
+let RB = null;
+async function getRB() {
+  if (RB) return RB;
+  const rbm = await import('../Radar-IDX-Hasira/radar-bundle.js?v=1');
+  RB = rbm.createRadarBundles({ db, fs: FS, log: (t) => console.info('[arsip hemat]', t) });
+  return RB;
+}
+async function refreshKongloArchive(logEl) {
+  try {
+    const n = await (await getRB()).rebuildOwnership();
+    if (logEl) logLine(logEl, `Arsip hemat Konglo diperbarui (${n} saham).`, 'ok');
+  } catch (err) {
+    console.warn('Arsip hemat Konglo gagal diperbarui:', err);
+    if (logEl) logLine(logEl, '\u26A0 Arsip hemat Konglo gagal diperbarui (Konglo tetap jalan dengan cara lama): ' + err.message, 'warn');
+  }
+}
+async function ensureKongloArchive() {
+  try { const m = await (await getRB()).meta(true); if (!m.ownership) await refreshKongloArchive(null); }
+  catch (err) { console.warn('Cek arsip hemat Konglo gagal:', err); }
+}
 
 const el = (id) => document.getElementById(id);
 
@@ -238,6 +263,7 @@ onAuthStateChanged(auth, (user) => {
   el('authDenied').hidden = allowed;
   el('tabBar').hidden = !allowed;
   el('uploadPanel').hidden = !allowed;
+  if (allowed) ensureKongloArchive();
 });
 
 // ---------- UPLOAD (drag & drop) ----------
@@ -562,6 +588,7 @@ el('btnConfirm').addEventListener('click', async () => {
     if (currentPlan.summary.newHolders > 0) {
       logLine(logEl, `\u2139 ${currentPlan.summary.newHolders} holder baru berstatus "unclassified" -- klasifikasi manual di collection "holders".`, 'warn');
     }
+    await refreshKongloArchive(logEl);
     logLine(logEl, 'Selesai.', 'ok');
   } catch (err) {
     logLine(logEl, 'GAGAL menulis: ' + err.message, 'err');
@@ -793,6 +820,7 @@ el('btnConfirmKlas').addEventListener('click', async () => {
     const resyncedCount = await commitInChunks(resyncOps);
     logLine(logEl, `      ${resyncedCount} ownership doc di-resync`, 'ok');
 
+    await refreshKongloArchive(logEl);
     logLine(logEl, 'Selesai.', 'ok');
   } catch (err) {
     logLine(logEl, 'GAGAL menulis: ' + err.message, 'err');
